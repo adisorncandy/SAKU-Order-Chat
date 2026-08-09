@@ -7,9 +7,8 @@ import { generateAiReply, parseAddressText } from "./server/ai.js";
 
 dotenv.config();
 
-async function startServer() {
+export async function createApp(includeFrontend = true) {
   const app = express();
-  const PORT = Number(process.env.PORT || 3000);
   const GRAPH_API_VERSION = process.env.FACEBOOK_GRAPH_API_VERSION || "v26.0";
 
   // Middleware for parsing JSON bodies
@@ -384,19 +383,28 @@ async function startServer() {
   // VITE STATIC / ROUTER DEV OR PROD MIDDLEWARE
   // ==========================================
 
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+  if (includeFrontend) {
+    if (process.env.NODE_ENV !== "production") {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
   }
+
+  return app;
+}
+
+async function startServer() {
+  const app = await createApp(true);
+  const PORT = Number(process.env.PORT || 3000);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`====================================================`);
@@ -407,6 +415,8 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error("Error starting express-vite server:", err);
-});
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error("Error starting express-vite server:", err);
+  });
+}
