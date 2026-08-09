@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@media print {
+  /* Hide structural containers, sidebar, buttons, and other pages/tabs */
+  #app-sidebar,
+  button,
+  form,
+  textarea,
+  select,
+  input,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Make sure body and html have normal display and visible overflow */
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Ensure the root layout handles printed display gracefully */
+  #app-root-layout {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
+  #app-main-stage {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  /* Hide tabs that are not currently active/printable */
+  #chat-tab-container,
+  #products-tab-container,
+  #kb-tab-container,
+  #settings-tab-container {
+    display: none !important;
+  }
+
+  /* Hide non-sticker parts of AddressParserView and OrdersView */
+  #parser-header-card,
+  #parser-left-column,
+  #recipient-fields-grid,
+  #order-items-builder,
+  #parser-right-actions,
+  #orders-header-card,
+  #orders-left-column,
+  #order-detail-card > div:first-child,
+  #printable-area-label h4,
+  #printable-area-label .flex,
+  #printable-area-label-selected h4,
+  #printable-area-label-selected .flex {
+    display: none !important;
+  }
+
+  /* Style the printed sticker card beautifully */
+  .printable-area {
+    display: block !important;
+    visibility: visible !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 20px !important;
+    transform: translateX(-50%) !important;
+    width: 100% !important;
+    max-width: 500px !important; /* Standard A6 / shipping label width */
+    border: 2px solid #000000 !important;
+    border-radius: 8px !important;
+    padding: 24px !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+  }
+}

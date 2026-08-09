@@ -1,0 +1,8 @@
+{
+  "name": "Facebook Fanpage Chat & Order Management",
+  "description": "ระบบจัดการแชท Facebook Fanpage ตอบแชทอัตโนมัติด้วย AI พร้อมระบบจำแนกที่อยู่อัจฉริยะ และระบบจัดการสินค้าและออเดอร์",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
