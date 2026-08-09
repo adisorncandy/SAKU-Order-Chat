@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { Settings, ChatThread, ChatMessage, KnowledgeItem, Product, Order } from '../src/types.js';
 
-const DB_FILE = path.join(process.cwd(), 'data', 'db.json');
+const dataDir = process.env.VERCEL ? '/tmp/saku-order-chat' : path.join(process.cwd(), 'data');
+const DB_FILE = path.join(dataDir, 'db.json');
 
 interface DatabaseSchema {
   settings: Settings;

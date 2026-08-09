@@ -2,16 +2,20 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { db } from "./db.js";
 import { Product, AddressDetails } from "../src/types.js";
 
-// Initialize the Gemini API client safely.
-// We set the recommended 'User-Agent' header for telemetry.
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+function getAiClient() {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
+
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        "User-Agent": "aistudio-build",
+      },
     },
-  },
-});
+  });
+}
 
 /**
  * Generates an automated or suggested reply for a customer thread using the Knowledge Base & Catalog.
@@ -62,6 +66,7 @@ ${messageHistory}
 จงวิเคราะห์ความต้องการของลูกค้าจากแชทล่าสุด และเขียนข้อความตอบกลับที่เหมาะสม เป็นมิตร สุภาพ มีหางเสียงตามข้อกำหนด และสั้นกระชับตรงประเด็น`;
 
   try {
+    const ai = getAiClient();
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: prompt,
@@ -106,6 +111,7 @@ ${productCatalogText}
 5. "items": ค้นหาชื่อสินค้าหรือรหัสสินค้าที่ลูกค้าต้องการสั่ง และจับคู่กับ "Product Catalog" ด้านบนให้ใกล้เคียงที่สุด เพื่อดึง "code" และระบุจำนวน "qty" ที่สั่ง (เช่น "หมวก 2 ใบ" จะตรงกับรหัส CAP-001 จำนวน 2 ชิ้น) หากไม่มีในระบบให้พยายามสร้างรหัสใกล้เคียง หรือปล่อยว่างไว้ถ้าไม่ใช่สินค้าในร้าน`;
 
   try {
+    const ai = getAiClient();
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: prompt,
