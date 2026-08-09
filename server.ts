@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import dotenv from "dotenv";
-import { createServer as createViteServer } from "vite";
 import { db } from "./server/db.js";
 import { generateAiReply, parseAddressText } from "./server/ai.js";
 
@@ -385,6 +384,7 @@ export async function createApp(includeFrontend = true) {
 
   if (includeFrontend) {
     if (process.env.NODE_ENV !== "production") {
+      const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
