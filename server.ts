@@ -41,6 +41,29 @@ export async function createApp(includeFrontend = true) {
     ...db.getSettings(),
     pageAccessToken: "",
   });
+  const policyPage = (title: string, body: string) => `<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title} | SAKU Order Chat</title>
+    <style>
+      body { margin: 0; font-family: Arial, sans-serif; color: #0f172a; background: #f8fafc; line-height: 1.65; }
+      main { max-width: 860px; margin: 0 auto; padding: 48px 20px; }
+      h1 { font-size: 32px; line-height: 1.2; margin: 0 0 16px; }
+      h2 { font-size: 20px; margin: 32px 0 8px; }
+      p, li { font-size: 16px; }
+      .card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 28px; }
+      .muted { color: #64748b; }
+      a { color: #047857; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="card">${body}</div>
+    </main>
+  </body>
+</html>`;
 
   // Middleware for parsing JSON bodies
   app.use(express.json());
@@ -51,6 +74,50 @@ export async function createApp(includeFrontend = true) {
     } catch (error) {
       next(error);
     }
+  });
+
+  app.get("/privacy", (_req, res) => {
+    res.type("html").send(policyPage("Privacy Policy", `
+      <h1>Privacy Policy</h1>
+      <p class="muted">Last updated: August 10, 2026</p>
+      <p>SAKU Order Chat is an internal customer-service and order-management tool for the Facebook Page “อร่อยหลังบ้าน.พัทลุง”. The system receives Messenger conversations from customers who contact the Page so the Page admin can respond, follow up, and manage orders.</p>
+      <h2>Information We Process</h2>
+      <ul>
+        <li>Facebook Page-scoped sender ID and message content sent to the Page.</li>
+        <li>Order details voluntarily provided by customers, such as name, phone number, address, product list, and delivery notes.</li>
+        <li>Internal admin actions such as replies, order status updates, products, and FAQ records.</li>
+      </ul>
+      <h2>How We Use Information</h2>
+      <p>We use this information only to provide customer support, reply to Messenger conversations, process orders, prepare delivery information, and improve responses for the Page. We do not sell customer data.</p>
+      <h2>Data Storage and Security</h2>
+      <p>Application data is stored in the connected production storage for this app and is accessible only to authorized admins. Sensitive Facebook credentials are stored as Vercel environment variables and are not exposed in the public interface.</p>
+      <h2>Data Sharing</h2>
+      <p>We share data only with service providers needed to operate the app, such as hosting and storage providers, and with Facebook/Meta APIs when replying through Messenger.</p>
+      <h2>Data Deletion</h2>
+      <p>Customers can request deletion of their conversation or order data by contacting the Page admin or following the instructions at <a href="/data-deletion">/data-deletion</a>.</p>
+      <h2>Contact</h2>
+      <p>For privacy requests, contact the Facebook Page admin for “อร่อยหลังบ้าน.พัทลุง”.</p>
+    `));
+  });
+
+  app.get("/data-deletion", (_req, res) => {
+    res.type("html").send(policyPage("Data Deletion Instructions", `
+      <h1>Data Deletion Instructions</h1>
+      <p class="muted">Last updated: August 10, 2026</p>
+      <p>If you contacted the Facebook Page “อร่อยหลังบ้าน.พัทลุง” and want your Messenger conversation, order information, or related customer-service data deleted from SAKU Order Chat, please send a deletion request to the Page admin.</p>
+      <h2>How to Request Deletion</h2>
+      <ol>
+        <li>Open the Facebook Page “อร่อยหลังบ้าน.พัทลุง”.</li>
+        <li>Send a Messenger message saying: “Please delete my SAKU Order Chat data.”</li>
+        <li>Include enough information for the admin to identify your conversation or order, such as your Messenger conversation and order date. Do not send unnecessary sensitive information.</li>
+      </ol>
+      <h2>What Will Be Deleted</h2>
+      <p>After verification, the admin will delete relevant conversation records, order records, and customer-service notes stored by SAKU Order Chat unless retention is required for legal, tax, fraud-prevention, or dispute-resolution reasons.</p>
+      <h2>Processing Time</h2>
+      <p>Deletion requests are normally processed within 30 days.</p>
+      <h2>Contact</h2>
+      <p>Contact the Page admin through Messenger on the Facebook Page “อร่อยหลังบ้าน.พัทลุง”.</p>
+    `));
   });
 
   // ==========================================
