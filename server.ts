@@ -9,6 +9,10 @@ dotenv.config();
 export async function createApp(includeFrontend = true) {
   const app = express();
   const GRAPH_API_VERSION = process.env.FACEBOOK_GRAPH_API_VERSION || "v26.0";
+  const getFacebookVerifyToken = () =>
+    (process.env.FACEBOOK_VERIFY_TOKEN || db.getSettings().verifyToken).trim();
+  const getFacebookPageAccessToken = () =>
+    (process.env.FACEBOOK_PAGE_ACCESS_TOKEN || db.getSettings().pageAccessToken || "").trim();
 
   // Middleware for parsing JSON bodies
   app.use(express.json());
@@ -24,9 +28,7 @@ export async function createApp(includeFrontend = true) {
     const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
 
-    const settings = db.getSettings();
-
-    if (mode === "subscribe" && token === settings.verifyToken) {
+    if (mode === "subscribe" && token === getFacebookVerifyToken()) {
       console.log("Facebook Webhook Verified successfully!");
       res.status(200).send(challenge);
     } else {
@@ -37,8 +39,7 @@ export async function createApp(includeFrontend = true) {
 
   // Helper to send a message to Facebook Messenger using the Send API
   async function sendFacebookMessage(recipientId: string, text: string) {
-    const settings = db.getSettings();
-    const pageAccessToken = settings.pageAccessToken?.trim();
+    const pageAccessToken = getFacebookPageAccessToken();
 
     if (!pageAccessToken || pageAccessToken === "EAAb..." || pageAccessToken.includes("YOUR_")) {
       console.log(`[Facebook Send API Simulated] To: ${recipientId} | Message: ${text}`);
