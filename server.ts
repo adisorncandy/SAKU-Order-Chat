@@ -97,7 +97,7 @@ export async function createApp(includeFrontend = true) {
 
             // 2. Check if AI Auto-Reply is enabled
             const settings = db.getSettings();
-            if (settings.aiEnabled) {
+            if (settings.aiEnabled && process.env.GEMINI_API_KEY) {
               try {
                 // Generate AI response
                 const aiReplyText = await generateAiReply(senderId);
