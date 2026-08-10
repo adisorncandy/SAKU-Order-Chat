@@ -114,8 +114,6 @@ export async function createApp(includeFrontend = true) {
 
     // Check if this is an event from a page subscription
     if (body.object === "page") {
-      res.status(200).send("EVENT_RECEIVED");
-
       // Iterate over each entry - there may be multiple if batched
       for (const entry of body.entry || []) {
         for (const webhookEvent of entry.messaging || []) {
@@ -152,6 +150,8 @@ export async function createApp(includeFrontend = true) {
           }
         }
       }
+
+      res.status(200).send("EVENT_RECEIVED");
     } else {
       // Returns a '404 Not Found' if event is not from a page subscription
       res.sendStatus(404);

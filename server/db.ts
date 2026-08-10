@@ -242,10 +242,20 @@ export class Database {
     );
   }
 
+  private blobAuthOptions() {
+    return process.env.BLOB_READ_WRITE_TOKEN
+      ? { token: process.env.BLOB_READ_WRITE_TOKEN }
+      : {};
+  }
+
   private async loadFromBlob(): Promise<DatabaseSchema | null> {
     if (!this.isBlobEnabled()) return null;
 
-    const blob = await get(BLOB_DB_PATH, { access: 'private', useCache: false });
+    const blob = await get(BLOB_DB_PATH, {
+      access: 'private',
+      useCache: false,
+      ...this.blobAuthOptions(),
+    });
     if (!blob || blob.statusCode !== 200) return null;
 
     const text = await new Response(blob.stream).text();
@@ -294,6 +304,7 @@ export class Database {
       allowOverwrite: true,
       contentType: 'application/json',
       cacheControlMaxAge: 60,
+      ...this.blobAuthOptions(),
     }).then(() => undefined).catch((error) => {
       console.error('Error writing to Vercel Blob DB', error);
       throw error;
