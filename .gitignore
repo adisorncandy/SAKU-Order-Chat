@@ -8,3 +8,5 @@ coverage/
 current-screen.png
 .env*
 !.env.example
+
+.vercel
