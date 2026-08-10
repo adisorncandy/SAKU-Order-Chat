@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import dotenv from "dotenv";
+import crypto from "crypto";
 import { db } from "./server/db.js";
 import { generateAiReply, parseAddressText } from "./server/ai.js";
 
@@ -13,9 +14,44 @@ export async function createApp(includeFrontend = true) {
     (process.env.FACEBOOK_VERIFY_TOKEN || db.getSettings().verifyToken).trim();
   const getFacebookPageAccessToken = () =>
     (process.env.FACEBOOK_PAGE_ACCESS_TOKEN || db.getSettings().pageAccessToken || "").trim();
+  const getAdminPassword = () => process.env.ADMIN_PASSWORD?.trim();
+  const getSessionSecret = () => process.env.ADMIN_SESSION_SECRET || getAdminPassword() || "local-dev-session";
+  const signSession = (expiresAt: number) =>
+    crypto.createHmac("sha256", getSessionSecret()).update(String(expiresAt)).digest("hex");
+  const createSessionCookie = () => {
+    const expiresAt = Date.now() + 1000 * 60 * 60 * 24 * 7;
+    return `${expiresAt}.${signSession(expiresAt)}`;
+  };
+  const parseCookies = (cookieHeader = "") =>
+    Object.fromEntries(cookieHeader.split(";").map((part) => {
+      const [key, ...value] = part.trim().split("=");
+      return [key, decodeURIComponent(value.join("=") || "")];
+    }).filter(([key]) => key));
+  const isValidSession = (cookieValue?: string) => {
+    if (!getAdminPassword()) return true;
+    if (!cookieValue) return false;
+    const [expiresAtRaw, signature] = cookieValue.split(".");
+    const expiresAt = Number(expiresAtRaw);
+    if (!expiresAt || Date.now() > expiresAt || !signature) return false;
+    const expected = signSession(expiresAt);
+    return signature.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  };
+  const getPublicSettings = () => ({
+    ...db.getSettings(),
+    pageAccessToken: "",
+  });
 
   // Middleware for parsing JSON bodies
   app.use(express.json());
+  app.use(async (_req, _res, next) => {
+    try {
+      await db.ready();
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
 
   // ==========================================
   // FACEBOOK WEBHOOK ENDPOINTS
@@ -94,6 +130,7 @@ export async function createApp(includeFrontend = true) {
 
             // 1. Create or retrieve thread and save the customer's message
             db.addMessage(senderId, "customer", text);
+            await db.flush();
 
             // 2. Check if AI Auto-Reply is enabled
             const settings = db.getSettings();
@@ -104,6 +141,7 @@ export async function createApp(includeFrontend = true) {
               
                 // Save AI's message
                 db.addMessage(senderId, "ai", aiReplyText);
+                await db.flush();
 
                 // Send the reply back to the actual Facebook user via API
                 await sendFacebookMessage(senderId, aiReplyText);
@@ -120,17 +158,59 @@ export async function createApp(includeFrontend = true) {
     }
   });
 
+  // ==========================================
+  // ADMIN AUTH API
+  // ==========================================
+  app.get("/api/auth/status", (req, res) => {
+    const cookies = parseCookies(req.headers.cookie);
+    res.json({
+      enabled: Boolean(getAdminPassword()),
+      authenticated: isValidSession(cookies.saku_admin),
+    });
+  });
+
+  app.post("/api/auth/login", (req, res) => {
+    const adminPassword = getAdminPassword();
+    if (!adminPassword) {
+      return res.json({ ok: true });
+    }
+
+    if (req.body?.password !== adminPassword) {
+      return res.status(401).json({ error: "Invalid password" });
+    }
+
+    res.setHeader(
+      "Set-Cookie",
+      `saku_admin=${encodeURIComponent(createSessionCookie())}; HttpOnly; Path=/; Max-Age=${60 * 60 * 24 * 7}; SameSite=Lax; ${process.env.NODE_ENV === "production" ? "Secure; " : ""}`
+    );
+    res.json({ ok: true });
+  });
+
+  app.post("/api/auth/logout", (_req, res) => {
+    res.setHeader("Set-Cookie", "saku_admin=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax");
+    res.json({ ok: true });
+  });
+
+  app.use("/api", (req, res, next) => {
+    const cookies = parseCookies(req.headers.cookie);
+    if (isValidSession(cookies.saku_admin)) {
+      return next();
+    }
+    res.status(401).json({ error: "Authentication required" });
+  });
+
 
   // ==========================================
   // APP SETTINGS API
   // ==========================================
   app.get("/api/settings", (req, res) => {
-    res.json(db.getSettings());
+    res.json(getPublicSettings());
   });
 
-  app.post("/api/settings", (req, res) => {
+  app.post("/api/settings", async (req, res) => {
     const updated = db.updateSettings(req.body);
-    res.json(updated);
+    await db.flush();
+    res.json({ ...updated, pageAccessToken: "" });
   });
 
 
@@ -141,10 +221,11 @@ export async function createApp(includeFrontend = true) {
     res.json(db.getThreads());
   });
 
-  app.get("/api/chats/:id", (req, res) => {
+  app.get("/api/chats/:id", async (req, res) => {
     const thread = db.getThread(req.params.id);
     if (thread) {
       db.markAsRead(req.params.id);
+      await db.flush();
       res.json(thread);
     } else {
       res.status(404).json({ error: "Thread not found" });
@@ -161,6 +242,7 @@ export async function createApp(includeFrontend = true) {
     try {
       // Save admin's message in local DB
       const message = db.addMessage(req.params.id, "admin", text);
+      await db.flush();
 
       // Send the message to the customer's actual Facebook account
       await sendFacebookMessage(req.params.id, text);
@@ -171,8 +253,9 @@ export async function createApp(includeFrontend = true) {
     }
   });
 
-  app.delete("/api/chats/:id", (req, res) => {
+  app.delete("/api/chats/:id", async (req, res) => {
     db.clearChat(req.params.id);
+    await db.flush();
     res.json({ success: true });
   });
 
@@ -188,10 +271,12 @@ export async function createApp(includeFrontend = true) {
     // Ensure thread is created with the custom name if provided
     if (customerName) {
       db.createThread(customerName, threadId);
+      await db.flush();
     }
 
     // 1. Save simulated message from customer
     const msg = db.addMessage(threadId, "customer", text);
+    await db.flush();
 
     // 2. Trigger AI auto-reply if enabled
     let aiReply = null;
@@ -200,6 +285,7 @@ export async function createApp(includeFrontend = true) {
       try {
         const aiText = await generateAiReply(threadId);
         aiReply = db.addMessage(threadId, "ai", aiText);
+        await db.flush();
         // Also simulate FB send call log
         console.log(`[Simulated Facebook AI reply to ${threadId}]: ${aiText}`);
       } catch (err) {
@@ -218,26 +304,29 @@ export async function createApp(includeFrontend = true) {
     res.json(db.getKnowledgeBase());
   });
 
-  app.post("/api/knowledge-base", (req, res) => {
+  app.post("/api/knowledge-base", async (req, res) => {
     const { question, answer, keywords } = req.body;
     if (!question || !answer) {
       return res.status(400).json({ error: "Question and Answer are required" });
     }
     const item = db.addKnowledgeItem({ question, answer, keywords: keywords || [] });
+    await db.flush();
     res.status(201).json(item);
   });
 
-  app.put("/api/knowledge-base/:id", (req, res) => {
+  app.put("/api/knowledge-base/:id", async (req, res) => {
     const updated = db.updateKnowledgeItem(req.params.id, req.body);
     if (updated) {
+      await db.flush();
       res.json(updated);
     } else {
       res.status(404).json({ error: "Knowledge item not found" });
     }
   });
 
-  app.delete("/api/knowledge-base/:id", (req, res) => {
+  app.delete("/api/knowledge-base/:id", async (req, res) => {
     const success = db.deleteKnowledgeItem(req.params.id);
+    if (success) await db.flush();
     res.json({ success });
   });
 
@@ -249,26 +338,29 @@ export async function createApp(includeFrontend = true) {
     res.json(db.getProducts());
   });
 
-  app.post("/api/products", (req, res) => {
+  app.post("/api/products", async (req, res) => {
     const { code, name, price, stock, description } = req.body;
     if (!code || !name || price === undefined) {
       return res.status(400).json({ error: "Code, Name, and Price are required" });
     }
     const product = db.addProduct({ code, name, price: Number(price), stock: Number(stock || 0), description: description || "" });
+    await db.flush();
     res.status(201).json(product);
   });
 
-  app.put("/api/products/:id", (req, res) => {
+  app.put("/api/products/:id", async (req, res) => {
     const updated = db.updateProduct(req.params.id, req.body);
     if (updated) {
+      await db.flush();
       res.json(updated);
     } else {
       res.status(404).json({ error: "Product not found" });
     }
   });
 
-  app.delete("/api/products/:id", (req, res) => {
+  app.delete("/api/products/:id", async (req, res) => {
     const success = db.deleteProduct(req.params.id);
+    if (success) await db.flush();
     res.json({ success });
   });
 
@@ -280,7 +372,7 @@ export async function createApp(includeFrontend = true) {
     res.json(db.getOrders());
   });
 
-  app.post("/api/orders", (req, res) => {
+  app.post("/api/orders", async (req, res) => {
     const { customerId, customerName, items, status, address } = req.body;
     if (!customerName || !items || !address) {
       return res.status(400).json({ error: "CustomerName, Items, and Address are required" });
@@ -297,20 +389,23 @@ export async function createApp(includeFrontend = true) {
       status: status || "pending",
       address,
     });
+    await db.flush();
     res.status(201).json(order);
   });
 
-  app.put("/api/orders/:id", (req, res) => {
+  app.put("/api/orders/:id", async (req, res) => {
     const updated = db.updateOrder(req.params.id, req.body);
     if (updated) {
+      await db.flush();
       res.json(updated);
     } else {
       res.status(404).json({ error: "Order not found" });
     }
   });
 
-  app.delete("/api/orders/:id", (req, res) => {
+  app.delete("/api/orders/:id", async (req, res) => {
     const success = db.deleteOrder(req.params.id);
+    if (success) await db.flush();
     res.json({ success });
   });
 

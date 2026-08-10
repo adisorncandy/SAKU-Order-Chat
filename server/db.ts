@@ -1,9 +1,11 @@
 import fs from 'fs';
 import path from 'path';
+import { get, put } from '@vercel/blob';
 import { Settings, ChatThread, ChatMessage, KnowledgeItem, Product, Order } from '../src/types.js';
 
 const dataDir = process.env.VERCEL ? '/tmp/saku-order-chat' : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(dataDir, 'db.json');
+const BLOB_DB_PATH = process.env.BLOB_DB_PATH || 'data/db.json';
 
 interface DatabaseSchema {
   settings: Settings;
@@ -187,10 +189,13 @@ const DEFAULT_ORDERS: Order[] = [
 
 export class Database {
   private data!: DatabaseSchema;
+  private readyPromise: Promise<void>;
+  private pendingSave: Promise<void> | null = null;
+  private loaded = false;
 
   constructor() {
     this.ensureDirectoryExists();
-    this.load();
+    this.readyPromise = this.load();
   }
 
   private ensureDirectoryExists() {
@@ -200,46 +205,99 @@ export class Database {
     }
   }
 
-  private load() {
+  async ready() {
+    await this.readyPromise;
+  }
+
+  async flush() {
+    if (this.pendingSave) {
+      await this.pendingSave;
+    }
+  }
+
+  private createDefaultData(): DatabaseSchema {
+    return {
+      settings: DEFAULT_SETTINGS,
+      threads: DEFAULT_CHATS,
+      knowledgeBase: DEFAULT_KNOWLEDGE_BASE,
+      products: DEFAULT_PRODUCTS,
+      orders: DEFAULT_ORDERS,
+    };
+  }
+
+  private normalizeSchema(data: Partial<DatabaseSchema>): DatabaseSchema {
+    return {
+      settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) },
+      threads: data.threads || DEFAULT_CHATS,
+      knowledgeBase: data.knowledgeBase || DEFAULT_KNOWLEDGE_BASE,
+      products: data.products || DEFAULT_PRODUCTS,
+      orders: data.orders || DEFAULT_ORDERS,
+    };
+  }
+
+  private isBlobEnabled() {
+    return Boolean(
+      process.env.BLOB_READ_WRITE_TOKEN ||
+      (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID)
+    );
+  }
+
+  private async loadFromBlob(): Promise<DatabaseSchema | null> {
+    if (!this.isBlobEnabled()) return null;
+
+    const blob = await get(BLOB_DB_PATH, { access: 'private', useCache: false });
+    if (!blob || blob.statusCode !== 200) return null;
+
+    const text = await new Response(blob.stream).text();
+    return this.normalizeSchema(JSON.parse(text));
+  }
+
+  private loadFromFile(): DatabaseSchema | null {
+    if (!fs.existsSync(DB_FILE)) return null;
+
+    const fileContent = fs.readFileSync(DB_FILE, 'utf-8');
+    return this.normalizeSchema(JSON.parse(fileContent));
+  }
+
+  private async load() {
     try {
-      if (fs.existsSync(DB_FILE)) {
-        const fileContent = fs.readFileSync(DB_FILE, 'utf-8');
-        this.data = JSON.parse(fileContent);
-        // Ensure schemas match newly added items
-        if (!this.data.settings) this.data.settings = DEFAULT_SETTINGS;
-        if (!this.data.threads) this.data.threads = DEFAULT_CHATS;
-        if (!this.data.knowledgeBase) this.data.knowledgeBase = DEFAULT_KNOWLEDGE_BASE;
-        if (!this.data.products) this.data.products = DEFAULT_PRODUCTS;
-        if (!this.data.orders) this.data.orders = DEFAULT_ORDERS;
-      } else {
-        this.data = {
-          settings: DEFAULT_SETTINGS,
-          threads: DEFAULT_CHATS,
-          knowledgeBase: DEFAULT_KNOWLEDGE_BASE,
-          products: DEFAULT_PRODUCTS,
-          orders: DEFAULT_ORDERS,
-        };
-        this.save();
+      this.data = await this.loadFromBlob() || this.loadFromFile() || this.createDefaultData();
+      this.loaded = true;
+
+      if (!this.loadFromFile()) {
+        this.saveLocal();
       }
     } catch (error) {
       console.error('Error loading DB, creating default.', error);
-      this.data = {
-        settings: DEFAULT_SETTINGS,
-        threads: DEFAULT_CHATS,
-        knowledgeBase: DEFAULT_KNOWLEDGE_BASE,
-        products: DEFAULT_PRODUCTS,
-        orders: DEFAULT_ORDERS,
-      };
+      this.data = this.createDefaultData();
+      this.loaded = true;
       this.save();
     }
   }
 
-  private save() {
+  private saveLocal() {
     try {
       fs.writeFileSync(DB_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
     } catch (error) {
       console.error('Error writing to DB file', error);
     }
+  }
+
+  private save() {
+    this.saveLocal();
+
+    if (!this.loaded || !this.isBlobEnabled()) return;
+
+    const body = JSON.stringify(this.data, null, 2);
+    this.pendingSave = put(BLOB_DB_PATH, body, {
+      access: 'private',
+      allowOverwrite: true,
+      contentType: 'application/json',
+      cacheControlMaxAge: 60,
+    }).then(() => undefined).catch((error) => {
+      console.error('Error writing to Vercel Blob DB', error);
+      throw error;
+    });
   }
 
   // Settings
