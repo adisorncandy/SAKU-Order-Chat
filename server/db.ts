@@ -299,13 +299,14 @@ export class Database {
     if (!this.loaded || !this.isBlobEnabled()) return;
 
     const body = JSON.stringify(this.data, null, 2);
-    this.pendingSave = put(BLOB_DB_PATH, body, {
+    const previousSave = this.pendingSave?.catch(() => undefined) || Promise.resolve();
+    this.pendingSave = previousSave.then(() => put(BLOB_DB_PATH, body, {
       access: 'private',
       allowOverwrite: true,
       contentType: 'application/json',
       cacheControlMaxAge: 60,
       ...this.blobAuthOptions(),
-    }).then(() => undefined).catch((error) => {
+    })).then(() => undefined).catch((error) => {
       console.error('Error writing to Vercel Blob DB', error);
       throw error;
     });
